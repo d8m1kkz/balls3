@@ -1,0 +1,13 @@
+name: Привет
+on: 
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: test -f nonexistent.html
+      - run: echo "Дошли до конца"
