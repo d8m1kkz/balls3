@@ -1,5 +1,9 @@
 name: Привет
-on: push
+on: 
+  :push
+    branches: [main]
+  pull_request:
+    branches: [main]
 jobs:
   hello:
     runs-on: ubuntu-latest
