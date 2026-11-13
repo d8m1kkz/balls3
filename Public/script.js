@@ -1,13 +1,25 @@
+// ---------- Настройки звука ударов ----------
+// Код звука — в разделе «Звук ударов» в конце файла
+const SOUND = {
+  PITCH: 1,         // общая высота звука: множитель ко всем частотам (2 — на октаву выше, 0.5 — на октаву ниже)
+  F_HI: 6000,       // нижняя граница шума щелчка (фильтр верхних частот), если меньший шар — самый мелкий (R_MIN), Гц (до умножения на PITCH)
+  F_LO: 6000,       // то же, если меньший шар — самый крупный (R_MAX); меньше значение — глуше щелчок у крупных шаров
+  DUR: 0.001,       // длительность щелчка, с
+  GAIN: 0.24,       // громкость самого громкого удара (дальше — общий компрессор)
+  PER_FRAME: 4,     // за кадр играется не больше стольких ударов — самых громких из видимых
+  MAX_VOICES: 32,   // не больше стольких одновременно звучащих ударов
+};
+
 // ---------- Интерфейс и отрисовка ----------
 // k = [К→З, К→С, З→К, З→С, С→К, С→З] — реакция первого цвета на второй; -1 притяжение, +1 отталкивание
 const PRESETS = [
+  [-0.22, 0.84, -0.17, 1.00, 0.06, 0.81],
   [0, 0, -1, .5, 1, 0.3],
   [0.72, 0.45, 0.26, -0.86, 0.66, -0.80],
   //[-0.36, 0.81, -0.65, 0.32, 0.86, 0.88],
   //[-0.93, 0.17, -0.09, 0.82, 0.66, 0.76],
   //[0.03, 0.78, -0.50, 0.88, 0.98, 0.19],
   //[0.53, 0.82, 0.34, -0.11, 0.97, -0.73],
-  [-0.22, 0.84, -0.17, 1.00, 0.06, 0.81],
   //[-0.2, -0.2, 0.2, -0.2, 0.2, 0.2],
   [-0.47, -0.57, -0.36, 0.89, -0.50, 0.28],
   [-0.22, -0.56, 0.71, 0.55, -0.54, 0.42],
@@ -15,13 +27,14 @@ const PRESETS = [
 ];
 // Ядро физики
 const SIM = {
-  N: 200,        // максимум шаров каждого типа; число шаров типа тянется к N/2 (см. collide и pickType)
+  N: 150,        // максимум шаров каждого типа; число шаров типа тянется к N/2 (см. collide и pickType)
   SPAWN_RATE: 5, // сколько шаров рождается в секунду (всего, пока не набрано N каждого цвета)
   BIRTH_COOLDOWN: 0.05, // новые шары (после слияния или деления) столько секунд только отскакивают — в новых событиях не участвуют
-  EVENT_SCALE: 0.1, // вероятность того, что удар кончится событием — слиянием (2 → 1) или делением (2 → 3); иначе — обычный отскок
-  SPAWN_LIMIT: 30, // общее число шаров, начиная с которого они перестают возникать из пустоты (дальше — только при ударах, см. collide)
-  TYPE_POW: 1,   // жёсткость глобальной тяги числа шаров каждого типа к N/2 при выборе типа нового шара (см. pickType); больше — строже
-  LOCAL_POW: 2,  // сила локального правила «рождается тот тип, которого рядом меньше» (см. pickType); 0 — отключено
+  EVENT_SCALE: 0.05, // вероятность того, что удар кончится событием — слиянием (2 → 1) или делением (2 → 3); иначе — обычный отскок
+  SPLIT_KICK: 0.2, // добавка к скорости разлёта трёх шаров при делении, в долях VMAX (0 — только энергия удара; итог всё равно срезается до VMAX)
+  SPAWN_LIMIT: 50, // общее число шаров, начиная с которого они перестают возникать из пустоты (дальше — только при ударах, см. collide)
+  TYPE_POW: 0.01,   // жёсткость глобальной тяги числа шаров каждого типа к N/2 при выборе типа нового шара (см. pickType); больше — строже
+  LOCAL_POW: 0,  // сила локального правила «рождается тот тип, которого рядом меньше» (см. pickType); 0 — отключено
   // Все размерные константы заданы в долях стороны мира W (квадрат), чтобы модель вела себя одинаково при любом размере экрана:
   // длины — в W, скорости — в W/с, ускорения — в W/с², DRAG — в 1/W. Пиксельные значения для конкретного W даёт scale(W), они лежат в w.c
   R_MIN: 1 / 2000,   // радиус шара на предельной скорости VMAX, доли W
@@ -31,72 +44,45 @@ const SIM = {
   //   d0 = ri + rj ≤ d < R_INT  — треугольный «горб» высотой F_MAX·|c| с вершиной посередине, знак — из коэффициента c;
   //   d < d0 (шары перекрылись) и d ≥ R_INT — сила равна нулю (перекрытия разрешают столкновения, см. collide).
   R_INT: 1 / 4,     // радиус взаимодействия, доли W (≥ 2·R_MAX, чтобы сетка годилась и для столкновений; < 1/2, чтобы расстояние по тору было однозначным)
-  F_MAX: 1 / 6,     // ускорение на вершине горба при |c| = 1, W/с²
-  K_SAME: 0.5,  // отталкивание между шарами одного типа (одно для всех типов; в тех же единицах, что k, > 0 — отталкивание)
-  DRAG: 0.05,    // базовое трение на единицу скорости, 1/W: темп затухания = DRAG·v / (1 − (v/VMAX)²)², т.е. при малых v сила торможения ≈ DRAG·v²,
+  F_MAX: 1 / 3,     // ускорение на вершине горба при |c| = 1, W/с²
+  K_SAME: 0.2,  // отталкивание между шарами одного типа (одно для всех типов; в тех же единицах, что k, > 0 — отталкивание)
+  DRAG: 0.03,    // базовое трение на единицу скорости, 1/W: темп затухания = DRAG·v / (1 − (v/VMAX)²)², т.е. при малых v сила торможения ≈ DRAG·v²,
                   // а по мере приближения к VMAX трение растёт без предела (VMAX практически недостижима)
   DRAG_SMAX: 0.7,  // потолок v/VMAX в формуле трения (чтобы знаменатель не обнулялся; при этом темп затухания ≈ 1000/с)
   VMAX: 1 / 6,     // предельная скорость, W/с
-  SPARK_MAX: 600,   // размер пула искр (кольцевой буфер, без выделения памяти на лету)
-  BIRTH_SPARKS: 14, // число искр во вспышке при слиянии или делении
-  SPARK_LIFE_MIN: 0.08, // время жизни искр при самом слабом ударе, с
-  SPARK_LIFE_MAX: 0.5,  // время жизни искр при ударе на SPARK_REF и сильнее, с
   POP_LIFE: 0.4,    // длительность анимации «лопнувшего шарика», с
   POP_SHARDS: 20,   // число осколков лопнувшего шара
   POP_MAX: 200,     // максимум одновременно лопающихся шаров
-  SPARK_REF: 5 / 32,   // скорость сближения, при которой искры имеют полную яркость, W/с
-  SPARK_V0: 1 / 32,    // минимальная начальная скорость искры, W/с
-  SPARK_VD: 7 / 96,    // разброс начальной скорости искры сверх минимальной, W/с
+  GHOST_LIFE: 0.2,  // слияние: за столько секунд призраки родителей съезжаются в точку нового шара
+  GHOST_MAX: 200,   // максимум одновременных призраков
+  BIRTH_LIFE: 0.25, // новый шар столько секунд растёт (при делении — выезжает из точки удара, при слиянии — перетекает в свой цвет), только визуально
+  // Разряд — короткая вспышка внутри каждого из двух шаров в месте удара: свечение, волна сжатия и растущие трещины.
+  // Рисуется строго внутри круга шара и едет вместе с ним. Только рисуется, на движение не влияет
+  ZAP_REF: 5 / 32,  // скорость сближения, при которой разряд имеет полную силу, W/с
+  ZAP_MIN: 0.03,    // удары слабее этой доли ZAP_REF разряда не дают (иначе шары, лежащие вплотную, искрили бы непрерывно)
+  ZAP_LIFE: 0.18,   // длительность вспышки, с
+  ZAP_MAX: 200,     // максимум одновременных вспышек (по одной на шар в каждом ударе)
+  ZAP_BOLTS: 5,     // число трещин в шаре при ударе полной силы (при слабом — две)
+  HIT_MAX: 64,     // максимум ударов, записанных в w.hits между выборками (по ним снаружи играется звук; сама физика их не читает)
   CONC_SIGMA: 3 / 64,   // масштаб сравнения расстояний в показателе концентрации, доли W (≈ 3 максимальных радиуса)
   // Пиксельные значения размерных констант для мира со стороной W
   scale(W) {
     const c = {};
-    for (const key of ['R_MIN', 'R_MAX', 'R_INT', 'F_MAX', 'VMAX', 'SPARK_REF', 'SPARK_V0', 'SPARK_VD', 'CONC_SIGMA']) c[key] = this[key] * W;
+    for (const key of ['R_MIN', 'R_MAX', 'R_INT', 'F_MAX', 'VMAX', 'ZAP_REF', 'CONC_SIGMA']) c[key] = this[key] * W;
     c.DRAG = this.DRAG / W;
     return c;
   },
   create(W, H, k) {
     // шаров в начале нет — они рождаются по ходу дела (см. spawn)
     // k копируем, чтобы не менять исходный пресет
-    // sp — пул искр, по 7 чисел на искру: x, y, vx, vy, t (жизнь 1→0), скорость затухания, яркость
-    return { W, H, c: this.scale(W), k: k.slice(), ps: [], born: 0,
-             sp: new Float32Array(this.SPARK_MAX * 7), sn: 0, pops: [] };
+    // hits — удары-отскоки с последней выборки: { x, y — точка удара, ra, rb — радиусы пары, s — сила 0..1 }; очищает тот, кто их читает
+    return { W, H, c: this.scale(W), k: k.slice(), ps: [], born: 0, pops: [], ghosts: [], zaps: [], hits: [] };
   },
-  // Искры в точке удара; яркость и количество растут с силой удара s (0..1)
-  emit(w, x, y, vx, vy, s) {
-    const cnt = 1 + Math.floor(s * 3), M = this.SPARK_MAX, sp = w.sp;
-    for (let n = 0; n < cnt; n++) {
-      const o = w.sn * 7; w.sn = (w.sn + 1) % M;
-      const a = Math.random() * Math.PI * 2, v = (w.c.SPARK_V0 + Math.random() * w.c.SPARK_VD) * (0.5 + s);
-      sp[o] = x; sp[o + 1] = y;
-      sp[o + 2] = vx * 0.3 + Math.cos(a) * v; sp[o + 3] = vy * 0.3 + Math.sin(a) * v;
-      sp[o + 4] = 1;
-      // время жизни растёт с силой удара: слабые искры гаснут быстро, сильные летят дольше (и дальше)
-      const life = (this.SPARK_LIFE_MIN + (this.SPARK_LIFE_MAX - this.SPARK_LIFE_MIN) * s) * (0.7 + Math.random() * 0.6);
-      sp[o + 5] = 1 / life; sp[o + 6] = s;
-    }
-  },
-  // Вспышка при слиянии или делении: BIRTH_SPARKS искр веером во все стороны из точки удара
-  burst(w, x, y, vx, vy) {
-    const cnt = this.BIRTH_SPARKS, M = this.SPARK_MAX, sp = w.sp, a0 = Math.random() * Math.PI * 2;
-    for (let n = 0; n < cnt; n++) {
-      const o = w.sn * 7; w.sn = (w.sn + 1) % M;
-      const a = a0 + (n + Math.random() * 0.8) / cnt * Math.PI * 2, v = (w.c.SPARK_V0 + Math.random() * w.c.SPARK_VD) * 1.5;
-      sp[o] = x; sp[o + 1] = y;
-      sp[o + 2] = vx * 0.15 + Math.cos(a) * v; sp[o + 3] = vy * 0.15 + Math.sin(a) * v;
-      sp[o + 4] = 1;
-      sp[o + 5] = 1 / ((this.SPARK_LIFE_MIN + (this.SPARK_LIFE_MAX - this.SPARK_LIFE_MIN) * 0.7) * (0.7 + Math.random() * 0.6));
-      sp[o + 6] = 0.9;
-    }
-  },
-  sparks(w, dt) {
-    const { W, H, sp } = w, damp = Math.max(0, 1 - 3 * dt);
-    for (let o = 0; o < sp.length; o += 7) {
-      if (sp[o + 4] <= 0) continue;
-      sp[o + 4] -= sp[o + 5] * dt;
-      sp[o] = ((sp[o] + sp[o + 2] * dt) % W + W) % W; sp[o + 1] = ((sp[o + 1] + sp[o + 3] * dt) % H + H) % H;
-      sp[o + 2] *= damp; sp[o + 3] *= damp;
-    }
+  // Вспышка в шаре p: ang — направление от центра шара на точку удара, s — сила удара 0..1.
+  // seed задаёт рисунок трещин, чтобы он не менялся в течение вспышки
+  zap(w, p, ang, s) {
+    if (s < this.ZAP_MIN || w.zaps.length >= this.ZAP_MAX) return;
+    w.zaps.push({ p, ang, s, seed: (Math.random() * 4294967296) >>> 0, age: 0 });
   },
   // k =[0→1, 0→2, 1→0, 1→2, 2→0, 2→1]: k[a→b] — реакция типа a на тип b; для одинаковых типов — константа K_SAME
   coef(k, a, b) { return a === b ? this.K_SAME : k[a * 2 + (b < a ? b : b - 1)]; },
@@ -163,6 +149,7 @@ const SIM = {
     for (let i = 0; i < n; i++) {
       const p = ps[i];
       if (p.cd > 0) p.cd -= dt;
+      if (p.fx && (p.fx.age += dt) >= this.BIRTH_LIFE) p.fx = null;
       // скорость после действия сил; трение зависит от неё и применяется неявно (деление на 1 + dr·dt), чтобы быть устойчивым при огромном dr
       const ux = p.vx + ax[i] * dt, uy = p.vy + ay[i] * dt, q = Math.min(Math.hypot(ux, uy) / c.VMAX, this.DRAG_SMAX);
       const dr = c.DRAG * q * c.VMAX / ((1 - q * q) * (1 - q * q)), f = 1 / (1 + dr * dt);
@@ -175,9 +162,12 @@ const SIM = {
       p.x = ((p.x + p.vx * dt) % W + W) % W; p.y = ((p.y + p.vy * dt) % H + H) % H;
     }
     this.collide(w);
-    this.sparks(w, dt);
     for (const q of w.pops) q.age += dt;
     if (w.pops.length && w.pops[0].age >= this.POP_LIFE) w.pops = w.pops.filter(q => q.age < this.POP_LIFE);
+    for (const q of w.ghosts) q.age += dt;
+    if (w.ghosts.length && w.ghosts[0].age >= this.GHOST_LIFE) w.ghosts = w.ghosts.filter(q => q.age < this.GHOST_LIFE);
+    for (const q of w.zaps) q.age += dt;
+    if (w.zaps.length && (w.zaps[0].age >= this.ZAP_LIFE || w.zaps.some(q => q.p.dead))) w.zaps = w.zaps.filter(q => q.age < this.ZAP_LIFE && !q.p.dead);
   },
   // Все пары шаров из соседних ячеек сетки на торе (ячейка ≥ R_INT, поэтому любая пара ближе R_INT попадёт);
   // каждая пара передаётся в fn(i, j) один раз (i < j). Шары, добавленные в ps во время обхода, не участвуют
@@ -206,9 +196,12 @@ const SIM = {
   //      u = (ca + cb)/2N — средняя заполненность типов пары (c — число шаров типа). С вероятностью u пара сливается в один шар,
   //      с вероятностью 1 − u делится на три. При c = N/2 шансы равны — к этому числу шаров каждого типа система и тянется:
   //      удары избыточных типов чаще убавляют шары, редких — прибавляют.
-  //      Слияние: шар массы ma + mb в центре масс пары, летит со скоростью центра масс (импульс сохраняется, энергия сближения — в искры).
+  //      Слияние: шар массы ma + mb в центре масс пары, летит со скоростью центра масс (импульс сохраняется, энергия сближения теряется).
   //      Деление: три шара равной массы (ma + mb)/3 в вершинах треугольника вокруг точки удара; скорость каждого — скорость центра масс
-  //      плюс разлёт от центра со скоростью |v_отн|·√(μ/M): импульс сохраняется, а вся энергия пары в системе центра масс уходит в разлёт.
+  //      плюс разлёт от центра со скоростью |v_отн|·√(μ/M) + SPLIT_KICK·VMAX: импульс сохраняется, энергия пары в системе центра масс
+  //      уходит в разлёт, а SPLIT_KICK добавляет энергию сверх неё, чтобы шары разлетались заметно.
+  //      Анимация (только визуал): при слиянии родители-призраки (w.ghosts) съезжаются в точку нового шара, а он растёт, перетекая из смешанного
+  //      цвета родителей в свой; при делении дети выезжают из точки удара (p.fx), часть клочьев родителей окрашена в цвета детей.
   //      Дальше новые шары живут по обычным правилам (силы, трение, срез до VMAX, радиус подстраивается под скорость)
   collide(w) {
     const { W, H, ps, c } = w, cnt = [0, 0, 0];
@@ -227,11 +220,13 @@ const SIM = {
       const ma = a.r * a.r, mb = b.r * b.r, M = ma + mb, mu = ma * mb / M;
       if (rel > 0) {
         const cx = wrapX(a.x + nx * a.r), cy = wrapY(a.y + ny * a.r); // точка удара
-        const s = Math.min(1, rel / c.SPARK_REF);
         if (a.cd > 0 || b.cd > 0 || Math.random() >= this.EVENT_SCALE) {
           const J = 2 * mu * rel;
           a.vx -= J / ma * nx; a.vy -= J / ma * ny; b.vx += J / mb * nx; b.vy += J / mb * ny;
-          this.emit(w, cx, cy, (a.vx + b.vx) / 2, (a.vy + b.vy) / 2, s);
+          const zs = Math.min(1, rel / c.ZAP_REF), za = Math.atan2(ny, nx);
+          this.zap(w, a, za, zs); this.zap(w, b, za + Math.PI, zs);
+          // тот же порог, что у разряда: шары, лежащие вплотную, не «звенят» непрерывно
+          if (zs >= this.ZAP_MIN && w.hits.length < this.HIT_MAX) w.hits.push({ x: cx, y: cy, ra: a.r, rb: b.r, s: zs });
         } else {
           const u = (cnt[a.t] + cnt[b.t]) / (2 * this.N);
           const mx = (ma * a.vx + mb * b.vx) / M, my = (ma * a.vy + mb * b.vy) / M; // скорость центра масс пары
@@ -245,31 +240,45 @@ const SIM = {
             if (ey > H / 2) ey = H - ey;
             if (ex * ex + ey * ey < R2) loc[p.t] += p.r * p.r;
           }
-          const born = (x, y, vx, vy, r) => {
+          // fx — визуальный эффект рождения (см. drawWorld); возвращает тип рождённого шара или −1
+          const born = (x, y, vx, vy, r, fx) => {
             const t = this.pickType(cnt, loc);
-            if (t < 0) return;
-            ps.push({ t, x: wrapX(x), y: wrapY(y), vx, vy, r, cd: this.BIRTH_COOLDOWN });
+            if (t < 0) return -1;
+            ps.push({ t, x: wrapX(x), y: wrapY(y), vx, vy, r, cd: this.BIRTH_COOLDOWN, fx });
             cnt[t]++;
+            return t;
           };
           if (Math.random() < u) {
-            born(a.x + dx * mb / M, a.y + dy * mb / M, mx, my, Math.min(c.R_MAX, Math.sqrt(M)));
+            // родители-призраки съезжаются в точку нового шара (координаты без обёртки тора), новый шар растёт и перетекает из смешанного цвета родителей
+            const tx = a.x + dx * mb / M, ty = a.y + dy * mb / M;
+            if (w.ghosts.length < this.GHOST_MAX) {
+              w.ghosts.push({ t: a.t, x: a.x, y: a.y, r: a.r, tx, ty, age: 0 });
+              w.ghosts.push({ t: b.t, x: a.x + dx, y: a.y + dy, r: b.r, tx, ty, age: 0 });
+            }
+            born(tx, ty, mx, my, Math.min(c.R_MAX, Math.sqrt(M)), { age: 0, kind: 0, ta: a.t, tb: b.t, wb: mb / M });
           } else {
             const r = Math.max(c.R_MIN, Math.sqrt(M / 3)), e = r * 1.2, a0 = Math.random() * Math.PI * 2; // e > 2r/√3 — шары не перекрываются
-            const v = Math.hypot(rvx, rvy) * Math.sqrt(mu / M);
+            const v = Math.hypot(rvx, rvy) * Math.sqrt(mu / M) + this.SPLIT_KICK * c.VMAX;
+            const kidTypes = [];
             for (let q = 0; q < 3; q++) {
               const ang = a0 + q * Math.PI * 2 / 3, ux = Math.cos(ang), uy = Math.sin(ang);
-              born(cx + ux * e, cy + uy * e, mx + ux * v, my + uy * v, r);
+              // дети выезжают из точки удара: dx, dy — смещение от неё до реальной позиции
+              const kt = born(cx + ux * e, cy + uy * e, mx + ux * v, my + uy * v, r, { age: 0, kind: 1, dx: ux * e, dy: uy * e });
+              if (kt >= 0) kidTypes.push(kt);
             }
             // родители лопаются: осколок — [направление, скорость разлёта, доля радиуса шара, на которой он стартует,
-            // относительный размер 0.2–1 (равномерно по логарифму)]; √ даёт равномерность по площади круга
+            // относительный размер 0.2–1 (равномерно по логарифму), тип цвета: родителя или (в половине случаев) случайного из детей];
+            // √ даёт равномерность по площади круга
             for (const gone of [a, b]) {
               if (w.pops.length >= this.POP_MAX) break;
               const sh = [];
-              for (let q = 0; q < this.POP_SHARDS; q++) sh.push([Math.random() * Math.PI * 2, 0.5 + Math.random(), Math.sqrt(Math.random()), Math.pow(0.2, Math.random())]);
+              for (let q = 0; q < this.POP_SHARDS; q++) {
+                const ct = kidTypes.length && Math.random() < 0.5 ? kidTypes[Math.floor(Math.random() * kidTypes.length)] : gone.t;
+                sh.push([Math.random() * Math.PI * 2, 0.5 + Math.random(), Math.sqrt(Math.random()), Math.pow(0.2, Math.random()), ct]);
+              }
               w.pops.push({ t: gone.t, x: gone.x, y: gone.y, r: gone.r, vx: gone.vx * 0.3, vy: gone.vy * 0.3, age: 0, sh });
             }
           }
-          this.burst(w, cx, cy, mx, my);
           return;
         }
       }
@@ -442,6 +451,7 @@ document.addEventListener('gesturestart', e => e.preventDefault()); // Safari: �
 const RGB = [[255, 64, 64], [61, 220, 107], [74, 144, 255]]; // красный, зелёный, синий
 const mix = (c, t) => c.map(v => Math.round(t < 0 ? v * (1 + t) : v + (255 - v) * t)); // t<0 темнее, t>0 светлее
 const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+const POP_COLORS = RGB.map(c => rgb(mix(c, 0.15))); // цвета клочьев лопнувшего шара по типам
 let sprites = [], spriteScale = 0;
 function buildSprites(scale) {
   spriteScale = scale;
@@ -506,20 +516,57 @@ function draw() {
 
 // Всё содержимое мира в контекст g (в координатах мира): каждая копия объекта на торе, попадающая в прямоугольник x0..x1 × y0..y1.
 // Копии объекта в точке v с запасом m вдоль оси длиной L: v + k·L для k от ceil((a − m − v)/L) до floor((b + m − v)/L)
+// Спрайт с центром (x, y) и диаметром size во всех копиях мира (тор), попадающих в область [x0, x1] × [y0, y1]
+function blit(g, img, x, y, size, x0, y0, x1, y1) {
+  const half = size / 2, ky1 = Math.floor((y1 + half - y) / H);
+  for (let kx = Math.ceil((x0 - half - x) / W), kx1 = Math.floor((x1 + half - x) / W); kx <= kx1; kx++)
+    for (let ky = Math.ceil((y0 - half - y) / H); ky <= ky1; ky++)
+      g.drawImage(img, x + kx * W - half, y + ky * H - half, size, size);
+}
+
+// Новорождённый шар (p.fx) — только визуал, физический радиус и положение не меняются:
+//   деление (kind 1): шар выезжает из точки удара и растёт от нуля;
+//   слияние (kind 0): шар вырастает с небольшим перелётом, а цвет перетекает из смеси цветов родителей (ta, tb; wb — доля второго) в свой
 function drawWorld(g, x0, y0, x1, y1) {
   const full = sprites[0].width / spriteScale;
   for (const p of world.ps) {
-    const img = sprites[p.t], size = full * p.r / world.c.R_MAX, half = size / 2;
-    const ky1 = Math.floor((y1 + half - p.y) / H);
-    for (let kx = Math.ceil((x0 - half - p.x) / W), kx1 = Math.floor((x1 + half - p.x) / W); kx <= kx1; kx++)
-      for (let ky = Math.ceil((y0 - half - p.y) / H); ky <= ky1; ky++)
-        g.drawImage(img, p.x + kx * W - half, p.y + ky * H - half, size, size);
+    const fx = p.fx;
+    let px = p.x, py = p.y, k = 1, u = 1;
+    if (fx) {
+      u = fx.age / SIM.BIRTH_LIFE;
+      if (fx.kind === 1) {
+        k = 1 - (1 - u) * (1 - u);
+        px -= fx.dx * (1 - k); py -= fx.dy * (1 - k);
+      } else {
+        const s = 1.70158, v = u - 1;
+        k = 1 + (s + 1) * v * v * v + s * v * v; // easeOutBack
+      }
+    }
+    const size = full * p.r / world.c.R_MAX * k;
+    if (fx && fx.kind === 0 && (fx.ta !== p.t || fx.tb !== p.t)) {
+      blit(g, sprites[fx.ta], px, py, size, x0, y0, x1, y1);
+      if (fx.tb !== fx.ta) { g.globalAlpha = fx.wb; blit(g, sprites[fx.tb], px, py, size, x0, y0, x1, y1); }
+      g.globalAlpha = Math.min(1, u); blit(g, sprites[p.t], px, py, size, x0, y0, x1, y1);
+      g.globalAlpha = 1;
+    } else blit(g, sprites[p.t], px, py, size, x0, y0, x1, y1);
   }
+  drawGhosts(g, x0, y0, x1, y1);
   drawPops(g, x0, y0, x1, y1);
-  drawSparks(g, x0, y0, x1, y1);
+  drawZaps(g, x0, y0, x1, y1);
 }
 
-// Лопнувший шарик: только клочья цвета шара — рваные треугольники, стартующие в случайных точках всей площади шара, чуть разлетаются, кувыркаются, мельчают
+// Слияние: призраки родителей съезжаются в точку нового шара, уменьшаясь и бледнея
+function drawGhosts(g, x0, y0, x1, y1) {
+  const full = sprites[0].width / spriteScale;
+  for (const q of world.ghosts) {
+    const u = q.age / SIM.GHOST_LIFE, e = 1 - (1 - u) * (1 - u);
+    g.globalAlpha = 1 - 0.7 * u;
+    blit(g, sprites[q.t], q.x + (q.tx - q.x) * e, q.y + (q.ty - q.y) * e, full * q.r / world.c.R_MAX * (1 - 0.7 * e), x0, y0, x1, y1);
+  }
+  g.globalAlpha = 1;
+}
+
+// Лопнувший шарик: клочья цвета шара (часть — цвета новых шаров при делении) — рваные треугольники, стартующие в случайных точках всей площади шара, чуть разлетаются, кувыркаются, мельчают
 // и гаснут («испаряются»); разлёт небольшой и быстро замедляется
 function drawPops(g, x0, y0, x1, y1) {
   for (const q of world.pops) {
@@ -527,12 +574,13 @@ function drawPops(g, x0, y0, x1, y1) {
     const x = q.x + q.vx * q.age, y = q.y + q.vy * q.age;
     const shrink = 1 - u * 0.8, base = q.r * 0.22 + 2.5, travel = 6 + q.r * 0.35; // base — размер самого крупного клочка
     const m = q.r + travel * 1.5 + base; // дальше этого от центра клочья не улетают
-    g.fillStyle = rgb(mix(RGB[q.t], 0.15)); g.globalAlpha = fade;
+    g.globalAlpha = fade;
     const ky1 = Math.floor((y1 + m - y) / H);
     for (let kx = Math.ceil((x0 - m - x) / W), kx1 = Math.floor((x1 + m - x) / W); kx <= kx1; kx++)
       for (let ky = Math.ceil((y0 - m - y) / H); ky <= ky1; ky++) {
         const cx = x + kx * W, cy = y + ky * H;
-        for (const [a, k, f, zz] of q.sh) {
+        for (const [a, k, f, zz, ct] of q.sh) {
+          g.fillStyle = POP_COLORS[ct];
           const size = base * zz * shrink, d = q.r * f + travel * k * e, px = cx + Math.cos(a) * d, py = cy + Math.sin(a) * d, rot = a * 3 + q.age * 12 * (k - 1);
           g.beginPath();
           g.moveTo(px + Math.cos(rot) * size, py + Math.sin(rot) * size);
@@ -545,34 +593,157 @@ function drawPops(g, x0, y0, x1, y1) {
   g.globalAlpha = 1;
 }
 
-// Искры: линии-штрихи вдоль скорости, аддитивное смешивание. Яркость квантуется на 6 уровней,
-// чтобы рисовать каждый уровень одним путём (6 вызовов stroke на кадр, а не по одному на искру)
-const SPARK_LEVELS = 6;
-function drawSparks(g, x0, y0, x1, y1) {
-  const sp = world.sp, paths = [], m = W / 100; // m — запас на длину штриха
-  for (let l = 0; l < SPARK_LEVELS; l++) paths.push(new Path2D());
-  let any = false;
-  for (let o = 0; o < sp.length; o += 7) {
-    const t = sp[o + 4]; if (t <= 0) continue;
-    const l = Math.min(SPARK_LEVELS - 1, Math.floor(t * (0.3 + 0.7 * sp[o + 6]) * SPARK_LEVELS));
-    const tx = sp[o + 2] * 0.03, ty = sp[o + 3] * 0.03;
-    const ky1 = Math.floor((y1 + m - sp[o + 1]) / H);
-    for (let kx = Math.ceil((x0 - m - sp[o]) / W), kx1 = Math.floor((x1 + m - sp[o]) / W); kx <= kx1; kx++)
-      for (let ky = Math.ceil((y0 - m - sp[o + 1]) / H); ky <= ky1; ky++) {
-        const x = sp[o] + kx * W, y = sp[o + 1] + ky * H;
-        paths[l].moveTo(x, y); paths[l].lineTo(x - tx, y - ty);
-        any = true;
-      }
+// Разряд: в месте удара вещество шара на мгновение «меняет структуру» — изнутри разгорается свечение, через шар бежит волна сжатия,
+// от точки удара внутрь растут ветвящиеся трещины. Всё рисуется под обрезкой по кругу шара (clip), поэтому наружу не выходит ни пикселя,
+// и привязано к самому шару: точка удара пересчитывается из его текущего центра и радиуса каждый кадр
+// Генератор псевдослучайных чисел с зерном (mulberry32): одинаковое зерно — одинаковый рисунок трещин
+function rng(seed) {
+  return () => {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// Трещина из (x, y) в направлении ang длиной len, видна часть grow (0..1) от начала. Звенья со случайным изломом (из rnd)
+// и лёгким дрожанием каждый кадр (jit); depth > 0 — возможны ответвления
+function zapBolt(g, rnd, x, y, ang, len, grow, jit, depth) {
+  const ux = Math.cos(ang), uy = Math.sin(ang), segs = 4 + Math.floor(rnd() * 2);
+  let px = x, py = y;
+  g.moveTo(x, y);
+  for (let i = 1; i <= segs; i++) {
+    const f = i / segs, off = (rnd() - 0.5) * 0.35 * len + (Math.random() - 0.5) * jit * len;
+    const qx = x + ux * len * f - uy * off, qy = y + uy * len * f + ux * off;
+    const branch = depth > 0 && i < segs && rnd() < 0.35, bs = rnd() < 0.5 ? -1 : 1, ba = 0.5 + rnd() * 0.6; // rnd тратится всегда — рисунок не зависит от grow
+    const f0 = (i - 1) / segs;
+    if (grow <= f0) return;
+    if (grow < f) { const k = (grow - f0) * segs; g.lineTo(px + (qx - px) * k, py + (qy - py) * k); return; }
+    g.lineTo(qx, qy);
+    if (branch) {
+      zapBolt(g, rnd, qx, qy, ang + bs * ba, len * (1 - f) * 0.7, (grow - f) / (1 - f), jit, depth - 1);
+      g.moveTo(qx, qy);
+    }
+    px = qx; py = qy;
   }
-  if (!any) return;
+}
+function drawZaps(g, x0, y0, x1, y1) {
+  const zaps = world.zaps;
+  if (!zaps.length) return;
+  const SPREAD = 55 * Math.PI / 180; // трещины расходятся от направления внутрь шара не больше чем на столько
   g.save();
   g.globalCompositeOperation = 'lighter';
-  g.lineWidth = 1.5; g.lineCap = 'round';
-  for (let l = 0; l < SPARK_LEVELS; l++) {
-    g.strokeStyle = `rgba(255,${200 + l * 9},${120 + l * 24},${(l + 1) / SPARK_LEVELS})`;
-    g.stroke(paths[l]);
+  g.lineCap = g.lineJoin = 'round';
+  for (const q of zaps) {
+    const p = q.p;
+    if (p.dead) continue;
+    const u = q.age / SIM.ZAP_LIFE, fade = (1 - u) * (1 - u), s = q.s, r = p.r;
+    const glow = 0.7 * r * (0.5 + 0.5 * s), grow = Math.min(1, u / 0.35), wave = r * (0.15 + 0.95 * Math.sqrt(u));
+    const ex = Math.cos(q.ang), ey = Math.sin(q.ang), inward = q.ang + Math.PI;
+    const light = mix(RGB[p.t], 0.6), core = mix(RGB[p.t], 0.9), cnt = 2 + Math.round(s * (SIM.ZAP_BOLTS - 2));
+    const ky1 = Math.floor((y1 + r - p.y) / H);
+    for (let kx = Math.ceil((x0 - r - p.x) / W), kx1 = Math.floor((x1 + r - p.x) / W); kx <= kx1; kx++)
+      for (let ky = Math.ceil((y0 - r - p.y) / H); ky <= ky1; ky++) {
+        const bx = p.x + kx * W, by = p.y + ky * H, hx = bx + ex * r, hy = by + ey * r; // центр шара и точка удара
+        g.save();
+        g.beginPath(); g.arc(bx, by, r * 0.97, 0, Math.PI * 2); g.clip();
+        // свечение изнутри: вещество в месте удара разогревается
+        const gr = g.createRadialGradient(hx, hy, 0, hx, hy, glow);
+        gr.addColorStop(0, `rgba(${core},${0.85 * fade * (0.5 + 0.5 * s)})`);
+        gr.addColorStop(0.4, `rgba(${light},${0.35 * fade * (0.5 + 0.5 * s)})`);
+        gr.addColorStop(1, `rgba(${light},0)`);
+        g.fillStyle = gr;
+        g.fillRect(hx - glow, hy - glow, glow * 2, glow * 2);
+        // волна сжатия, бегущая через шар от точки удара
+        g.beginPath(); g.arc(hx, hy, wave, 0, Math.PI * 2);
+        g.strokeStyle = `rgba(${light},${0.45 * (1 - u) * (0.4 + 0.6 * s)})`; g.lineWidth = Math.max(0.6, r * 0.06 * (1 - u)); g.stroke();
+        // трещины: растут от точки удара внутрь
+        const rnd = rng(q.seed);
+        g.beginPath();
+        for (let i = 0; i < cnt; i++) {
+          const ang = inward + ((i + 0.5) / cnt * 2 - 1) * SPREAD + (rnd() - 0.5) * 0.3;
+          zapBolt(g, rnd, hx, hy, ang, r * (0.45 + rnd() * 0.5) * (0.6 + 0.4 * s), grow, 0.05, 2);
+        }
+        g.strokeStyle = `rgba(${light},${0.5 * fade})`; g.lineWidth = Math.max(0.8, r * 0.07); g.stroke();
+        g.strokeStyle = `rgba(${core},${fade})`; g.lineWidth = Math.max(0.4, r * 0.025); g.stroke();
+        g.restore();
+      }
   }
   g.restore();
+}
+
+// ---------- Звук ударов ----------
+// Простой звук стального шарика, отскакивающего от металла, синтезируется на лету (Web Audio): один очень короткий
+// (~1 мс) щелчок высокочастотного шума, без звона.
+// Громкость — в основном от размера пары (больше шары — громче), слабо от силы удара; частота фильтра — от меньшего шара (F_HI…F_LO).
+// Звучат только удары на экране, панорама — по положению удара на экране
+// Настройки звука — в объекте SOUND в начале файла; здесь к нему добавляются состояние и методы
+Object.assign(SOUND, {
+  ac: null, master: null, noise: null, voices: 0, on: true,
+  // AudioContext можно запустить только после жеста пользователя, поэтому создаётся при первом касании / клавише
+  init() {
+    if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ac = this.ac = new AC();
+    // голос → панорама → master → компрессор → выход; компрессор не даёт пачке ударов перегрузить звук
+    const comp = ac.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 6; comp.attack.value = 0.002; comp.release.value = 0.15;
+    this.master = ac.createGain();
+    this.master.gain.value = this.on ? 1 : 0;
+    this.master.connect(comp); comp.connect(ac.destination);
+    // общий буфер белого шума для щелчка
+    const n = Math.ceil(ac.sampleRate * 0.03);
+    this.noise = ac.createBuffer(1, n, ac.sampleRate);
+    const d = this.noise.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  },
+  toggle() {
+    this.on = !this.on;
+    if (this.master) this.master.gain.setTargetAtTime(this.on ? 1 : 0, this.ac.currentTime, 0.02);
+    muteBtn.textContent = this.on ? '🔊' : '🔇';
+  },
+  // Один удар: q — размер меньшего шара 0..1 (0 — мельчайший, фильтр F_HI; 1 — крупнейший, F_LO), gain — громкость, pan — −1..1
+  clack(q, gain, pan) {
+    const ac = this.ac, t = ac.currentTime + 0.005, nyq = ac.sampleRate * 0.45; // небольшой запас, чтобы огибающая не начиналась в прошлом
+    const f = this.PITCH * this.F_HI * Math.pow(this.F_LO / this.F_HI, q) * (1 + (Math.random() - 0.5) * 0.04); // ±2% — удары не звучат одинаково
+    const out = ac.createStereoPanner ? ac.createStereoPanner() : ac.createGain();
+    if (out.pan) out.pan.value = pan;
+    out.connect(this.master);
+    // щелчок: шум через фильтр верхних частот, ~1 мс — острое касание металла о металл
+    const src = ac.createBufferSource(), hp = ac.createBiquadFilter(), ng = ac.createGain();
+    src.buffer = this.noise;
+    hp.type = 'highpass'; hp.frequency.value = Math.min(nyq, f); hp.Q.value = 0.7;
+    ng.gain.setValueAtTime(gain, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + this.DUR);
+    src.connect(hp); hp.connect(ng); ng.connect(out);
+    src.start(t); src.stop(t + this.DUR + 0.009);
+    src.onended = () => { this.voices--; out.disconnect(); };
+    this.voices++;
+  }
+});
+const muteBtn = document.createElement('button');
+muteBtn.textContent = '🔊';
+muteBtn.title = 'Звук (M)';
+muteBtn.addEventListener('click', () => SOUND.toggle());
+presetBar.appendChild(muteBtn);
+for (const ev of ['pointerdown', 'keydown', 'touchend']) window.addEventListener(ev, () => SOUND.init(), { capture: true });
+window.addEventListener('keydown', e => { if (e.code === 'KeyM') SOUND.toggle(); });
+
+// Удары, накопленные за кадр: видимые на экране (с учётом тора) превращаются в звук, самые громкие — первыми
+function playHits(hits) {
+  const S = SOUND;
+  if (!hits.length || !S.ac || !S.on || S.ac.state !== 'running') return;
+  const c = world.c, z = cam.z, L = Math.log(c.R_MAX / c.R_MIN), list = [];
+  for (const h of hits) {
+    // ближайшая к левому верхнему углу экрана копия точки удара; если и она за краем — удар не виден
+    const sx = ((h.x - cam.x) % W + W) % W * z, sy = ((h.y - cam.y) % H + H) % H * z;
+    if (sx >= VW || sy >= VH) continue;
+    const size = Math.min(1, (h.ra + h.rb) / (2 * c.R_MAX));
+    const q = Math.max(0, Math.min(1, Math.log(Math.min(h.ra, h.rb) / c.R_MIN) / L));
+    list.push({ q, g: S.GAIN * (0.1 + 0.9 * Math.pow(size, 0.8)) * (0.6 + 0.4 * h.s), pan: 0.8 * (2 * sx / VW - 1) });
+  }
+  list.sort((a, b) => b.g - a.g);
+  for (let i = 0; i < list.length && i < S.PER_FRAME && S.voices < S.MAX_VOICES; i++) S.clack(list[i].q, list[i].g, list[i].pan);
 }
 
 let last = performance.now(), acc = 0;
@@ -580,6 +751,8 @@ function frame(t) {
   acc += Math.min(0.1, (t - last) / 1000); last = t;
   const dt = 1 / 240;
   while (acc >= dt) { SIM.step(world, dt); acc -= dt; }
+  playHits(world.hits);
+  world.hits.length = 0;
   draw();
   updateConc(t);
   requestAnimationFrame(frame);
