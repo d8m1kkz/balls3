@@ -10,7 +10,7 @@ jobs:
       - run: test -f Public/index.html
       - run: test -f Public/script.js
       - run: test -f Public/style.css
-      - run: sed -i 's/__GITHUB_SHA__/${{ github.sha }}/' Public/inext.html
+      - run: sed -i 's/__GITHUB_SHA__/${{ github.sha }}/' Public/index.html
       - uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
           server: ${{ vars.SFTP_HOST }}
