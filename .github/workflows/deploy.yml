@@ -10,12 +10,13 @@ jobs:
       - run: test -f Public/index.html
       - run: test -f Public/script.js
       - run: test -f Public/style.css
+      - run: sed -i 's/__GITHUB_SHA__/${{ github.sha }}/' Public/inext.html
       - uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
           server: ${{ vars.SFTP_HOST }}
-          username: ${{ vars.SFTP_USER }}
+          username: ${{ secrets.SFTP_USER }}
           password: ${{ secrets.SFTP_PASSWORD }}
           local_path: 'Public/*'
           remote_path: ${{ vars.SFTP_PATH }}
           sftp_only: true
-      - run: curl -fsS ${{ vars.SITE_URL }} | grep -q '<link rel="stylesheet" href="style.css?123">'
+      - run: curl -fsS ${{ vars.SITE_URL }} | grep -q '<link rel="stylesheet" href="style.css?${{ github.sha }}">'
