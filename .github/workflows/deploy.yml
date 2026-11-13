@@ -1,0 +1,20 @@
+name: deploy
+on: 
+  push:
+    branches: [main]
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: test -f Public/index.html
+      - run: test -f Public/script.js
+      - run: test -f Public/style.css
+      - uses: wlixcc/SFTP-Deploy-Action@v1.2.6
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          local_path: 'Public/*'
+          remote_path: '/balls3/public_html/'
+          sftp_only: true
