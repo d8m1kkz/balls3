@@ -8,8 +8,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: test -f Public/index.html
-      - run: test -f Public/script.js
       - run: test -f Public/style.css
+      - run: test -f Public/script.js
       - uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
           server: ${{ vars.SFTP_HOST }}
