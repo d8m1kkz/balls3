@@ -11,10 +11,13 @@ body {
   background: #000;
 }
 
-/* Холст квадратный, размер задаётся в script.js; то, что не влезло в окно, обрезается (overflow: hidden у body) */
+/* Холст во всё окно, размер задаётся в script.js; жесты (сдвиг, щипок) обрабатывает скрипт, а не браузер */
 canvas {
   display: block;
+  touch-action: none;
+  cursor: grab;
 }
+canvas.drag { cursor: grabbing; }
 
 #hud {
   position: fixed;
