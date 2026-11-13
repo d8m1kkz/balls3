@@ -12,10 +12,10 @@ jobs:
       - run: test -f Public/style.css
       - uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
-          server: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USER }}
+          server: ${{ vars.SFTP_HOST }}
+          username: ${{ vars.SFTP_USER }}
           password: ${{ secrets.SFTP_PASSWORD }}
           local_path: 'Public/*'
-          remote_path: 'balls3/public_html/'
+          remote_path: ${{ vars.SFTP_PATH }}
           sftp_only: true
-      - run: curl -fsS -o /dev/null ${{ vars.SITE_URL }} | grep -q '<link rel="stylesheet" href="style.css?123">'
+      - run: curl -fsS ${{ vars.SITE_URL }} | grep -q '<link rel="stylesheet" href="style.css?123">'
