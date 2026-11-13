@@ -18,3 +18,4 @@ jobs:
           local_path: 'Public/*'
           remote_path: 'balls3/public_html/'
           sftp_only: true
+      - run: curl -fsS -o /dev/null ${{ vars.SITE_URL }} | grep -q '<link rel="stylesheet" href="style.css?123">'
