@@ -16,5 +16,5 @@ jobs:
           username: ${{ secrets.SFTP_USER }}
           password: ${{ secrets.SFTP_PASSWORD }}
           local_path: 'Public/*'
-          remote_path: '/balls3/public_html/'
+          remote_path: 'balls3/public_html/'
           sftp_only: true
